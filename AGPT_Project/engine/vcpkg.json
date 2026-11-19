@@ -1,0 +1,5 @@
+{
+  "name": "xengine",
+  "version": "0.1.0",
+  "dependencies": [ "sdl3", "box2d", "glm", "glad" ]
+}
