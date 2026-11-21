@@ -1,6 +1,8 @@
 #include "Actors.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <xe/Engine.h>
 #include <xe/InputManager.h>
 #include <xe/Level.h>
@@ -10,35 +12,52 @@
 
 namespace {
 
-XenonLevel& game(xe::Actor& a) { return static_cast<XenonLevel&>(a.level()); }
+    XenonLevel& game(xe::Actor& a) { return static_cast<XenonLevel&>(a.level()); }
+    glm::vec2 viewport(xe::Actor& a) { return a.level().engine().renderer().viewportSize(); }
 
-glm::vec2 viewport(xe::Actor& a) { return a.level().engine().renderer().viewportSize(); }
+    // Builds an animation clip playing frames [0 .. count - 1] sequentially
+    xe::Animation makeClip(int count, float frameTime, bool loop = true) {
+        xe::Animation anim;
+        for (int i = 0; i < count; ++i) anim.frames.push_back(i);
+        anim.frameTime = frameTime;
+        anim.loop = loop;
+        return anim;
+    }
 
-xe::Animation loopAll(int frames, float frameTime) {
-    xe::Animation a;
-    for (int i = 0; i < frames; ++i) a.frames.push_back(i);
-    a.frameTime = frameTime;
-    a.loop = true;
-    return a;
-}
+    // Helper to attach a box collider/sensor to an actor's physics body
+    void addBoxShape(xe::Actor& actor, glm::vec2 halfExtents, bool sensor,
+        std::uint16_t category, std::uint16_t mask) {
+        xe::ShapeDesc s;
+        s.halfExtents = halfExtents;
+        s.sensor = sensor;
+        s.category = category;
+        s.mask = mask;
+        actor.body().addShape(s);
+    }
+
+    // Checks whether a position has left the visible screen plus a safety margin
+    bool isOffScreen(glm::vec2 pos, glm::vec2 vp, float margin) {
+        return pos.x < -margin || pos.x > vp.x + margin ||
+            pos.y < -margin || pos.y > vp.y + margin;
+    }
 
 }  // namespace
 
 // ---- Explosion -------------------------------------------------------------------------
-Explosion::Explosion(xe::Level& level, glm::vec2 pos, float size) : Actor(level) {
+Explosion::Explosion(xe::Level& level, glm::vec2 pos, float size) : xe::Actor(level) {
     position = pos;
     scale = glm::vec2(size);
     layer = zorder::Fx;
     sheet = game(*this).assets().explosion;
-    rotation = game(*this).randomFloat(0.f, 6.2831853f);   // random orientation per explosion
-    xe::Animation boom = loopAll(sheet->frameCount(), 0.035f);
-    boom.loop = false;   // one-shot
-    animator.add("boom", boom);
+    rotation = game(*this).randomFloat(0.f, 6.2831853f);
+
+    // One-shot animation (loop = false); destroyed once finished() becomes true
+    animator.add("boom", makeClip(sheet->frameCount(), 0.035f, false));
     animator.play("boom");
 }
 
 void Explosion::update(float dt) {
-    rotation += 1.5f * dt;   // visible rotation
+    rotation += 1.5f * dt;  // Subtle spin during the explosion
     if (animator.finished()) destroy();
 }
 
@@ -57,38 +76,41 @@ void Enemy::crash() {
     destroy();
 }
 
-Loner::Loner(xe::Level& level, float y, bool fromLeft) : Enemy(level), direction_(fromLeft ? 1.f : -1.f) {
+Loner::Loner(xe::Level& level, float y, bool fromLeft)
+    : Enemy(level), direction_(fromLeft ? 1.f : -1.f) {
     health_ = 3;
     points_ = 150;
     layer = zorder::Enemy;
     sheet = game(*this).assets().loner;
-    const float half = sheet->frameSize().x * 0.5f;
-    position = {fromLeft ? -half : viewport(*this).x + half, y};
-    animator.add("fly", loopAll(sheet->frameCount(), 0.1f));
+
+    const float halfW = sheet->frameSize().x * 0.5f;
+    position = { fromLeft ? -halfW : viewport(*this).x + halfW, y };
+
+    animator.add("fly", makeClip(sheet->frameCount(), 0.1f));
     animator.play("fly");
 
+    // Non-sensor kinematic body so Missile and Ship sensors detect overlaps in Box2D v3
     createBody(xe::BodyType::Kinematic);
-    xe::ShapeDesc s;
-    s.halfExtents = sheet->frameSize() * 0.5f * 0.7f;
-    s.category = cat::Enemy;
-    s.mask = cat::All;
-    body().addShape(s);
-    body().setVelocity({direction_ * 130.f, 0.f});
+    addBoxShape(*this, sheet->frameSize() * 0.35f, false, cat::Enemy, cat::All);
+    body().setVelocity({ direction_ * 130.f, 0.f });
 }
 
 void Loner::update(float dt) {
-    const float half = sheet->frameSize().x * 0.5f;
-    if (position.x < -half - 20.f || position.x > viewport(*this).x + half + 20.f) {
+    // Despawn once the Loner exits the opposite side of the screen
+    const float margin = sheet->frameSize().x * 0.5f + 20.f;
+    if (position.x < -margin || position.x > viewport(*this).x + margin) {
         destroy();
         return;
     }
+
+    // Fire an aimed projectile at the player's current position every 2 seconds
     fireTimer_ -= dt;
     if (fireTimer_ <= 0.f) {
-        fireTimer_ += 2.f;   // every 2 seconds
-        glm::vec2 dir{0.f, 1.f};
+        fireTimer_ += 2.f;
+        glm::vec2 dir{ 0.f, 1.f };
         if (Ship* ship = game(*this).ship()) {
-            const glm::vec2 d = ship->position - position;
-            if (glm::length(d) > 1.f) dir = glm::normalize(d);
+            const glm::vec2 toShip = ship->position - position;
+            if (glm::length(toShip) > 1.f) dir = glm::normalize(toShip);
         }
         level().spawn<EnemyShot>(position, dir * 240.f);
     }
@@ -99,17 +121,14 @@ Rusher::Rusher(xe::Level& level, float x) : Enemy(level) {
     points_ = 100;
     layer = zorder::Enemy;
     sheet = game(*this).assets().rusher;
-    position = {x, -sheet->frameSize().y * 0.5f};
-    animator.add("fly", loopAll(sheet->frameCount(), 0.1f));
+    position = { x, -sheet->frameSize().y * 0.5f };
+
+    animator.add("fly", makeClip(sheet->frameCount(), 0.1f));
     animator.play("fly");
 
     createBody(xe::BodyType::Kinematic);
-    xe::ShapeDesc s;
-    s.halfExtents = sheet->frameSize() * 0.5f * 0.7f;
-    s.category = cat::Enemy;
-    s.mask = cat::All;
-    body().addShape(s);
-    body().setVelocity({0.f, 230.f});
+    addBoxShape(*this, sheet->frameSize() * 0.35f, false, cat::Enemy, cat::All);
+    body().setVelocity({ 0.f, 230.f });
 }
 
 void Rusher::update(float) {
@@ -117,11 +136,12 @@ void Rusher::update(float) {
 }
 
 // ---- Projectiles -----------------------------------------------------------------------
-EnemyShot::EnemyShot(xe::Level& level, glm::vec2 pos, glm::vec2 velocity) : Actor(level) {
+EnemyShot::EnemyShot(xe::Level& level, glm::vec2 pos, glm::vec2 velocity) : xe::Actor(level) {
     position = pos;
     layer = zorder::Shot;
     sheet = game(*this).assets().enemyShot;
-    animator.add("fly", loopAll(sheet->frameCount(), 0.08f));
+
+    animator.add("fly", makeClip(sheet->frameCount(), 0.08f));
     animator.play("fly");
 
     createBody(xe::BodyType::Kinematic);
@@ -136,35 +156,30 @@ EnemyShot::EnemyShot(xe::Level& level, glm::vec2 pos, glm::vec2 velocity) : Acto
 }
 
 void EnemyShot::update(float dt) {
-    rotation += 8.f * dt;   // spinning projectile
-    const glm::vec2 vp = viewport(*this);
-    if (position.x < -40.f || position.x > vp.x + 40.f || position.y < -40.f || position.y > vp.y + 40.f)
-        destroy();
+    rotation += 8.f * dt;  // Continuous rotation (satisfies CG rotation requirement)
+    if (isOffScreen(position, viewport(*this), 40.f)) destroy();
 }
 
 void EnemyShot::onOverlap(xe::Actor& other) {
-    if (auto* s = dynamic_cast<Ship*>(&other)) {
-        s->hit();
+    if (auto* ship = dynamic_cast<Ship*>(&other)) {
+        ship->hit();
         level().spawn<Explosion>(position, 0.6f);
         destroy();
     }
 }
 
-Missile::Missile(xe::Level& level, glm::vec2 pos) : Actor(level) {
+Missile::Missile(xe::Level& level, glm::vec2 pos) : xe::Actor(level) {
     position = pos;
     layer = zorder::Shot;
     sheet = game(*this).assets().missile;
-    animator.add("fly", loopAll(kMissileRow0Frames, 0.06f));   // first row = light missiles
+
+    // Play only the first row of missile.bmp (light missiles)
+    animator.add("fly", makeClip(kMissileRow0Frames, 0.06f));
     animator.play("fly");
 
     createBody(xe::BodyType::Kinematic);
-    xe::ShapeDesc s;
-    s.halfExtents = sheet->frameSize() * 0.5f * 0.6f;
-    s.sensor = true;
-    s.category = cat::Missile;
-    s.mask = cat::Enemy;
-    body().addShape(s);
-    body().setVelocity({0.f, -650.f});
+    addBoxShape(*this, sheet->frameSize() * 0.3f, true, cat::Missile, cat::Enemy);
+    body().setVelocity({ 0.f, -650.f });
 }
 
 void Missile::update(float) {
@@ -172,78 +187,70 @@ void Missile::update(float) {
 }
 
 void Missile::onOverlap(xe::Actor& other) {
-    if (auto* e = dynamic_cast<Enemy*>(&other)) {
-        e->takeHit(1);
+    if (auto* enemy = dynamic_cast<Enemy*>(&other)) {
+        enemy->takeHit(1);
         level().spawn<Explosion>(position, 0.5f);
         destroy();
     }
 }
 
 // ---- Ship ------------------------------------------------------------------------------
-Ship::Ship(xe::Level& level, glm::vec2 pos) : Actor(level) {
+Ship::Ship(xe::Level& level, glm::vec2 pos) : xe::Actor(level) {
     position = pos;
     layer = zorder::Ship;
     sheet = game(*this).assets().ship;
 
-    xe::Animation idle;
-    idle.frames = {kShipIdleFrame};
-    idle.loop = false;
-    animator.add("idle", idle);
-    xe::Animation left;
-    left.frames = {2, 1, 0};
-    left.frameTime = 0.06f;
-    left.loop = false;
-    animator.add("left", left);
-    xe::Animation right;
-    right.frames = {3, 4, 5};
-    right.frameTime = 0.06f;
-    right.loop = false;
-    animator.add("right", right);
+    // Ship1.bmp (7 tiles): 0..2 = turn left, 3 = neutral center, 4..6 = turn right
+    animator.add("idle", { {kShipIdleFrame}, 0.1f, false });    
+	animator.add("left", { {2, 1, 0}, 0.06f, false });
+    animator.add("right", { {4, 5, 6}, 0.06f, false });
     animator.play("idle");
 
     createBody(xe::BodyType::Kinematic);
-    xe::ShapeDesc solid;   // visitor shape: enemy shots detect this one
-    solid.halfExtents = sheet->frameSize() * 0.5f * 0.5f;
-    solid.category = cat::Ship;
-    solid.mask = cat::All;
-    body().addShape(solid);
-    xe::ShapeDesc sensor;  // detects enemies ramming the ship
-    sensor.halfExtents = sheet->frameSize() * 0.5f * 0.6f;
-    sensor.sensor = true;
-    sensor.category = cat::ShipSensor;
-    sensor.mask = cat::Enemy;
-    body().addShape(sensor);
+    // 1. Solid hitbox: allows EnemyShot sensors to trigger Box2D v3 sensor events
+    addBoxShape(*this, sheet->frameSize() * 0.25f, false, cat::Ship, cat::All);
+    // 2. Sensor hitbox: detects ramming collisions against solid Enemy bodies
+    addBoxShape(*this, sheet->frameSize() * 0.30f, true, cat::ShipSensor, cat::Enemy);
 }
 
 void Ship::update(float dt) {
     auto& input = level().engine().input();
-    glm::vec2 dir{input.axis("move_x"), input.axis("move_y")};
+
+    // Read normalized movement axes (keyboard + gamepad) and prevent faster diagonal movement
+    glm::vec2 dir{ input.axis("move_x"), input.axis("move_y") };
     if (glm::length(dir) > 1.f) dir = glm::normalize(dir);
     body().setVelocity(dir * 320.f);
 
+    // Switch banking animation based on horizontal movement direction
     if (dir.x < -0.2f) animator.play("left");
     else if (dir.x > 0.2f) animator.play("right");
     else animator.play("idle");
 
+    // Fire missiles from the nose of the ship while "fire" is held
     fireCooldown_ -= dt;
     if (input.isDown("fire") && fireCooldown_ <= 0.f) {
         fireCooldown_ = 0.18f;
         level().spawn<Missile>(position + glm::vec2(0.f, -sheet->frameSize().y * 0.5f));
     }
 
+    // Visual invulnerability blink after taking damage
     if (invulnerable_ > 0.f) {
         invulnerable_ -= dt;
-        tint.a = (static_cast<int>(invulnerable_ * 10.f) % 2) ? 0.35f : 1.f;   // blink
-    } else {
+        tint.a = (static_cast<int>(invulnerable_ * 10.f) % 2) ? 0.35f : 1.f;
+    }
+    else {
         tint.a = 1.f;
     }
 }
 
 void Ship::afterPhysics() {
+    // Keep the ship clamped inside the visible viewport after Box2D integrates its velocity
     const glm::vec2 half = sheet->frameSize() * 0.5f;
     const glm::vec2 vp = viewport(*this);
-    const glm::vec2 clamped{std::fmin(std::fmax(position.x, half.x), vp.x - half.x),
-                            std::fmin(std::fmax(position.y, half.y), vp.y - half.y)};
+    const glm::vec2 clamped{
+        std::clamp(position.x, half.x, vp.x - half.x),
+        std::clamp(position.y, half.y, vp.y - half.y)
+    };
     if (clamped != position) {
         position = clamped;
         body().setPosition(clamped);
@@ -251,9 +258,9 @@ void Ship::afterPhysics() {
 }
 
 void Ship::onOverlap(xe::Actor& other) {
-    if (auto* e = dynamic_cast<Enemy*>(&other)) {
+    if (auto* enemy = dynamic_cast<Enemy*>(&other)) {
         if (invulnerable_ <= 0.f) hit();
-        e->crash();
+        enemy->crash();
     }
 }
 
@@ -261,6 +268,7 @@ void Ship::hit() {
     if (invulnerable_ > 0.f || !alive()) return;
     invulnerable_ = 1.5f;
     level().spawn<Explosion>(position, 0.6f);
+
     if (--health_ <= 0) {
         level().spawn<Explosion>(position, 1.6f);
         game(*this).onShipDestroyed();

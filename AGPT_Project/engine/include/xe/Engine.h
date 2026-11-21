@@ -1,55 +1,52 @@
 #pragma once
+
 #include <memory>
 #include <string>
-#include <utility>
 #include <glm/glm.hpp>
-#include <xe/Level.h>
 
 namespace xe {
 
-class InputManager;
-class Renderer;
-class ResourceManager;
-class Window;
+    class InputManager;
+    class Level;
+    class Renderer;
+    class ResourceManager;
+    class Window;
 
-struct EngineConfig {
-    std::string title = "XE Game";
-    int width = 600;
-    int height = 800;
-    float fixedTimeStep = 1.f / 60.f;   // Box2D step, independent of the frame rate
-    std::string assetsDir = "assets";
-    std::string shadersDir;             // empty => "<executable dir>/shaders"
-    glm::vec4 clearColor{0.f, 0.f, 0.f, 1.f};
-};
+    struct EngineConfig {
+        std::string title = "XE Game";
+        int width = 600;
+        int height = 800;
+        float fixedTimeStep = 1.f / 60.f;   // Fixed Box2D step (60 Hz), independent of render FPS
+        std::string assetsDir = "assets";
+        std::string shadersDir;             // Empty => "<executable dir>/shaders"
+        glm::vec4 clearColor{ 0.f, 0.f, 0.f, 1.f };
+    };
 
-// Owns window, GL context, renderer, resources, input and the active level.
-// Everything is released by destructors (reverse declaration order).
-class Engine {
-public:
-    explicit Engine(const EngineConfig& config);
-    ~Engine();
-    Engine(const Engine&) = delete;
-    Engine& operator=(const Engine&) = delete;
+    // Top-level engine facade. Hides SDL3, OpenGL, and Box2D behind Pimpl so game code
+    // stays 100% decoupled from third-party libraries, and frees everything via RAII.
+    class Engine {
+    public:
+        explicit Engine(const EngineConfig& config);
+        ~Engine();
 
-    // Takes effect at the start of the next loop iteration.
-    void setLevel(std::unique_ptr<Level> level);
-    template <class T, class... Args>
-    void loadLevel(Args&&... args) {
-        setLevel(std::make_unique<T>(*this, std::forward<Args>(args)...));
-    }
+        Engine(const Engine&) = delete;
+        Engine& operator=(const Engine&) = delete;
 
-    int run();
-    void quit();
+        // Swaps in a new level safely at the start of the next frame
+        void setLevel(std::unique_ptr<Level> level);
 
-    InputManager& input();
-    ResourceManager& resources();
-    Renderer& renderer();
-    Window& window();
-    void setWindowTitle(const std::string& title);
+        int run();
+        void quit();
 
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-};
+        InputManager& input();
+        ResourceManager& resources();
+        Renderer& renderer();
+        Window& window();
+        void setWindowTitle(const std::string& title);
+
+    private:
+        struct Impl;
+        std::unique_ptr<Impl> impl_;
+    };
 
 }  // namespace xe

@@ -1,28 +1,34 @@
 #pragma once
-#include <memory>
+
 #include <string>
+
+// Forward declaration keeps <SDL3/SDL.h> out of public engine headers
+struct SDL_Window;
 
 namespace xe {
 
-// OS window with an OpenGL-capable surface. RAII: created in the constructor,
-// destroyed in the destructor. SDL stays hidden behind the pimpl.
-class Window {
-public:
-    Window(const std::string& title, int width, int height);
-    ~Window();
-    Window(const Window&) = delete;
-    Window& operator=(const Window&) = delete;
+    // RAII wrapper around an OpenGL-capable OS window.
+    // Acquires the SDL_Window in the constructor and destroys it in the destructor.
+    class Window {
+    public:
+        Window(const std::string& title, int width, int height);
+        ~Window();
 
-    void setTitle(const std::string& title);
-    int width() const { return width_; }
-    int height() const { return height_; }
+        // Non-copyable because this object uniquely owns an OS window handle
+        Window(const Window&) = delete;
+        Window& operator=(const Window&) = delete;
 
-    void* nativeHandle() const;   // engine internals (SDL_Window*)
+        void setTitle(const std::string& title);
+        int width() const { return width_; }
+        int height() const { return height_; }
 
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-    int width_, height_;
-};
+        // Exposes the underlying SDL_Window* as an opaque pointer for internal engine classes
+        void* nativeHandle() const { return window_; }
+
+    private:
+        SDL_Window* window_ = nullptr;
+        int width_;
+        int height_;
+    };
 
 }  // namespace xe
