@@ -19,8 +19,6 @@ namespace xe {
         Window& operator=(const Window&) = delete;
 
         void setTitle(const std::string& title);
-        int width() const { return width_; }
-        int height() const { return height_; }
 
         // Exposes the underlying SDL_Window* as an opaque pointer for internal engine classes
         void* nativeHandle() const { return window_; }

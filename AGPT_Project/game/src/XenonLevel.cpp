@@ -13,43 +13,43 @@
 
 namespace {
 
-    // Stateless 2D spatial hash: produces deterministic pseudo-random values per (x, y) pixel,
-    // ensuring tile edges wrap seamlessly when rendered with OpenGL GL_REPEAT.
+    // Stateless 2D spatial hash: produces deterministic values per (x, y) pixel
+    // so opposite tile edges wrap seamlessly when rendered with OpenGL GL_REPEAT.
     std::uint32_t hash2(std::uint32_t x, std::uint32_t y, std::uint32_t seed) {
         std::uint32_t h = x * 374761393u + y * 668265263u + seed * 2246822519u;
         h = (h ^ (h >> 13)) * 1274126177u;
         return h ^ (h >> 16);
     }
 
-    // Fallback layer 0 (opaque): deep-space backdrop with dim distant stars
+    // Procedural fallback layer 0 (opaque): deep-space backdrop with dim distant stars
     void fillDeepSpace(std::vector<unsigned char>& px) {
         for (int y = 0; y < 256; ++y) {
             for (int x = 0; x < 256; ++x) {
                 const std::uint32_t h = hash2(x, y, 1);
-                unsigned char* p = &px[(static_cast<size_t>(y) * 256 + x) * 4];
                 const auto noise = static_cast<unsigned char>(h & 7);
+                const size_t i = (static_cast<size_t>(y) * 256 + x) * 4;
 
-                p[0] = static_cast<unsigned char>(4 + noise);
-                p[1] = static_cast<unsigned char>(6 + noise);
-                p[2] = static_cast<unsigned char>(22 + noise * 2);
-                p[3] = 255;
+                px[i + 0] = static_cast<unsigned char>(4 + noise);
+                px[i + 1] = static_cast<unsigned char>(6 + noise);
+                px[i + 2] = static_cast<unsigned char>(22 + noise * 2);
+                px[i + 3] = 255;
 
                 if ((h >> 8) % 350 == 0) {
-                    p[0] = p[1] = p[2] = static_cast<unsigned char>(90 + (h >> 20) % 70);
+                    px[i + 0] = px[i + 1] = px[i + 2] = static_cast<unsigned char>(90 + (h >> 20) % 70);
                 }
             }
         }
     }
 
-    // Fallback layer 1 (transparent): sparse bright foreground stars that scroll faster
+    // Procedural fallback layer 1 (transparent): sparse bright stars scrolling faster in front
     void fillNearStars(std::vector<unsigned char>& px) {
         for (int y = 0; y < 256; ++y) {
             for (int x = 0; x < 256; ++x) {
                 const std::uint32_t h = hash2(x, y, 7);
                 if ((h >> 8) % 260 == 0) {
-                    unsigned char* p = &px[(static_cast<size_t>(y) * 256 + x) * 4];
-                    p[0] = p[1] = p[2] = static_cast<unsigned char>(190 + (h >> 20) % 65);
-                    p[3] = 255;
+                    const size_t i = (static_cast<size_t>(y) * 256 + x) * 4;
+                    px[i + 0] = px[i + 1] = px[i + 2] = static_cast<unsigned char>(190 + (h >> 20) % 65);
+                    px[i + 3] = 255;
                 }
             }
         }
@@ -90,6 +90,7 @@ void XenonLevel::onLoad() {
     spawn<xe::ParallaxLayer>(bg1, 130.f, zorder::Back1, 2.f);
 
     spawnShip();
+    refreshTitle();
 }
 
 void XenonLevel::spawnShip() {
@@ -132,15 +133,11 @@ void XenonLevel::onUpdate(float dt) {
             spawnShip();
         }
     }
-
-    if (titleDirty_) {
-        refreshTitle();
-    }
 }
 
 void XenonLevel::addScore(int points) {
     score_ += points;
-    titleDirty_ = true;
+    refreshTitle();
 }
 
 void XenonLevel::onShipDestroyed() {
@@ -150,11 +147,10 @@ void XenonLevel::onShipDestroyed() {
         score_ = 0;
     }
     respawnTimer_ = 2.f;
-    titleDirty_ = true;
+    refreshTitle();
 }
 
 void XenonLevel::refreshTitle() {
-    titleDirty_ = false;
     engine().setWindowTitle("Xenon 2000 | Score " + std::to_string(score_) +
         " | Lives " + std::to_string(lives_));
 }
@@ -164,5 +160,5 @@ float XenonLevel::randomFloat(float lo, float hi) {
 }
 
 bool XenonLevel::randomBool() {
-    return std::uniform_int_distribution<int>(0, 1)(rng_) == 1;
+    return randomFloat(0.f, 1.f) < 0.5f;
 }

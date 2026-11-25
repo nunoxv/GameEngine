@@ -48,5 +48,4 @@ private:
     float respawnTimer_ = -1.f;
     int score_ = 0;
     int lives_ = 3;
-    bool titleDirty_ = true;            // Only updates the OS window title when score/lives change
 };

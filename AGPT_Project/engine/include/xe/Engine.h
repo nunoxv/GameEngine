@@ -32,7 +32,7 @@ namespace xe {
         Engine(const Engine&) = delete;
         Engine& operator=(const Engine&) = delete;
 
-        // Swaps in a new level safely at the start of the next frame
+        // Queues a new level to swap in safely at the start of the next frame
         void setLevel(std::unique_ptr<Level> level);
 
         int run();

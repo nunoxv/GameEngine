@@ -1,6 +1,5 @@
 #include "OpenGLRenderer.h"
 
-#include <cstring>
 #include <stdexcept>
 #include <vector>
 #include <SDL3/SDL.h>
@@ -64,18 +63,19 @@ namespace xe::detail {
         // 3. Copy rows into a tightly packed buffer (respecting `rgba->pitch` row padding)
         const int w = rgba->w;
         const int h = rgba->h;
-        const size_t rowBytes = static_cast<size_t>(w) * 4;
+        const std::size_t rowBytes = static_cast<std::size_t>(w) * 4;
         std::vector<unsigned char> pixels(rowBytes * h);
 
         for (int y = 0; y < h; ++y) {
-            const auto* srcRow = static_cast<const unsigned char*>(rgba->pixels) + static_cast<size_t>(y) * rgba->pitch;
-            std::memcpy(&pixels[static_cast<size_t>(y) * rowBytes], srcRow, rowBytes);
+            const auto* srcRow = static_cast<const unsigned char*>(rgba->pixels) +
+                static_cast<std::size_t>(y) * rgba->pitch;
+            std::memcpy(&pixels[static_cast<std::size_t>(y) * rowBytes], srcRow, rowBytes);
         }
 
         // 4. Color-key transparency: Xenon 2000 BMPs use pure magenta (255, 0, 255) for transparency.
         // Zeroing RGB as well as Alpha prevents pink fringe artifacts along sprite edges.
         if (options.magentaColorKey) {
-            for (size_t i = 0; i < pixels.size(); i += 4) {
+            for (std::size_t i = 0; i < pixels.size(); i += 4) {
                 if (pixels[i] == 255 && pixels[i + 1] == 0 && pixels[i + 2] == 255) {
                     pixels[i] = pixels[i + 1] = pixels[i + 2] = pixels[i + 3] = 0;
                 }
@@ -96,7 +96,7 @@ namespace xe::detail {
         glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Bind the sprite shader, upload the orthographic projection matrix, and bind the unit quad VAO
+        // Bind shared state once per frame rather than repeating per sprite
         shader_->use();
         shader_->setMat4("uProjection", projection_);
         shader_->setInt("uTexture", 0);
@@ -107,14 +107,13 @@ namespace xe::detail {
         if (!sprite.texture) return;
 
         // Build Model matrix: M = Translation * Rotation * Scale
-        // Because GLM post-multiplies matrices, vertices are scaled around the sprite's center first,
-        // then rotated around Z, and finally translated to world pixel coordinates.
+        // GLM post-multiplies matrices, so vertices scale around center, rotate around Z, then translate.
         glm::mat4 model(1.f);
         model = glm::translate(model, glm::vec3(sprite.position, 0.f));
         model = glm::rotate(model, sprite.rotation, glm::vec3(0.f, 0.f, 1.f));
         model = glm::scale(model, glm::vec3(sprite.size * sprite.scale, 1.f));
 
-        // Send per-sprite uniforms to the shaders and issue the draw call
+        // Upload per-sprite uniforms and draw the unit quad
         shader_->setMat4("uModel", model);
         shader_->setVec4("uUvRect", sprite.uv);
         shader_->setVec4("uTint", sprite.tint);
@@ -124,7 +123,6 @@ namespace xe::detail {
     }
 
     void OpenGLRenderer::endFrame() {
-        // Swap back buffer to the screen (double buffering)
         SDL_GL_SwapWindow(window_);
     }
 

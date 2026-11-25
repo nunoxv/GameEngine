@@ -20,8 +20,6 @@ namespace xe {
         glm::vec2 frameSize() const;          // Pixel dimensions (width, height) of a single tile
 
         int frameCount() const { return columns_ * rows_; }
-        int columns() const { return columns_; }
-        int rows() const { return rows_; }
         const Texture& texture() const { return *texture_; }
 
     private:

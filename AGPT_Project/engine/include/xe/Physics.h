@@ -29,7 +29,7 @@ namespace xe {
     };
 
     // RAII wrapper owning a single Box2D body (b2BodyId). Automatically destroyed when Actor dies.
-    class PhysicsBody {
+    class   PhysicsBody {
     public:
         struct Impl;
         explicit PhysicsBody(std::unique_ptr<Impl> impl);
@@ -41,7 +41,6 @@ namespace xe {
         void addShape(const ShapeDesc& shape);
         glm::vec2 position() const;
         void setPosition(glm::vec2 p);
-        glm::vec2 velocity() const;
         void setVelocity(glm::vec2 v);
 
     private:

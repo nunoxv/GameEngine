@@ -29,7 +29,6 @@ namespace xe {
         // 2. Cache miss: load via the abstract Renderer backend, store, and return
         auto tex = renderer_.createTextureFromFile(fullPath(relativePath), options);
         textures_.emplace(relativePath, tex);
-        ++textureLoads_;
         return tex;
     }
 
@@ -49,7 +48,6 @@ namespace xe {
 
         auto tex = renderer_.createTextureFromPixels(width, height, rgba.data(), options);
         textures_.emplace(cacheKey, tex);
-        ++textureLoads_;
         return tex;
     }
 

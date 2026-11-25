@@ -2,14 +2,14 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <utility>
 #include <SDL3/SDL.h>
 #include <xe/InputManager.h>
+#include <xe/Level.h>
 #include <xe/ResourceManager.h>
 #include <xe/Window.h>
 #include "OpenGLRenderer.h"
 #include "SdlWrappers.h"
-#include <xe/Level.h>
-
 
 namespace {
 
@@ -40,8 +40,8 @@ namespace xe {
         detail::SdlSystem sdl;
         Window window;
         detail::GlContext context;
-        detail::OpenGLRenderer renderer;   // Direct member: no extra unique_ptr needed
-        ResourceManager resources;         // Direct member: no extra unique_ptr needed
+        detail::OpenGLRenderer renderer;
+        ResourceManager resources;
         InputManager input;
         std::unique_ptr<Level> level;
         std::unique_ptr<Level> pending;
@@ -72,6 +72,7 @@ namespace xe {
                 app.level.reset();
                 app.level = std::move(app.pending);
                 app.level->onLoad();
+                prevTicks = SDL_GetPerformanceCounter();  // Exclude asset loading time from frame 1 dt
             }
 
             // 2. Poll OS & input events
@@ -82,7 +83,7 @@ namespace xe {
             }
             app.input.update();
 
-            // 3. Measure elapsed frame time (clamped to 0.25s to avoid physics spiral-of-death)
+            // 3. Measure elapsed frame time (clamped to 0.25s to prevent physics spiral-of-death)
             const Uint64 now = SDL_GetPerformanceCounter();
             const double dt = std::min(0.25, static_cast<double>(now - prevTicks) / freq);
             prevTicks = now;

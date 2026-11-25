@@ -9,7 +9,6 @@
 
 namespace xe {
 
-    // Forward declarations prevent circular header dependencies and keep compile times fast.
     class Level;
     class Renderer;
 
@@ -21,17 +20,17 @@ namespace xe {
         explicit Actor(Level& level);
         virtual ~Actor();
 
-        // Delete copy operations because an Actor owns a unique physics body and has a unique Level ID.
+        // Non-copyable: each Actor owns a unique Box2D body and has a unique Level ID.
         Actor(const Actor&) = delete;
         Actor& operator=(const Actor&) = delete;
 
         // Lifecycle hooks overridden by concrete game actors:
-        virtual void update(float dt) { (void)dt; }           // Input & gameplay logic (runs once per frame)
-        virtual void afterPhysics() {}                        // Sync visual transform with Box2D after physics steps
-        virtual void onOverlap(Actor& other) { (void)other; } // Triggered when Box2D sensor shapes overlap
-        virtual void render(Renderer& renderer);              // Submits sprite draw data to the abstract Renderer
+        virtual void update(float) {}             // Input & gameplay logic (once per frame)
+        virtual void afterPhysics() {}            // Post-Box2D adjustments (e.g., screen clamping)
+        virtual void onOverlap(Actor&) {}         // Triggered when Box2D sensor shapes overlap
+        virtual void render(Renderer& renderer);  // Submits sprite draw data to the abstract Renderer
 
-        // Deferred destruction: marks the actor dead so Level can safely delete it at the end
+        // Deferred destruction: marks the actor dead so Level safely deletes it at the end
         // of the frame without invalidating iterators mid-update or mid-collision callback.
         void destroy() { alive_ = false; }
         bool alive() const { return alive_; }
@@ -50,7 +49,7 @@ namespace xe {
         glm::vec2 scale{ 1.f };
         glm::vec2 spriteSize{ 0.f };   // If (0, 0), defaults to the SpriteSheet's single-frame pixel size
         glm::vec4 tint{ 1.f };         // RGBA color multiplier (default white = unmodified texture color)
-        int layer = 0;               // Render sorting order (lower numbers are drawn first / further back)
+        int layer = 0;               // Render sorting order (lower numbers draw first / further back)
         int frame = 0;               // Manual sprite-sheet frame index when no animation clip is active
 
         // Shared texture atlas (cached by ResourceManager) and per-actor animation state machine
@@ -61,13 +60,10 @@ namespace xe {
         // Helper for subclasses to attach a Box2D physics body at the actor's current `position`
         void createBody(BodyType type);
 
-        // Releases the physics body early (e.g., disabling collisions while a death animation plays)
-        void destroyBody() { body_.reset(); }
-
     private:
-        friend class Level; // Allows Level to assign `id_` upon actor creation
+        friend class Level;  // Allows Level to assign `id_` upon actor creation
         Level& level_;
-        std::unique_ptr<PhysicsBody> body_; // RAII wrapper: automatically destroys Box2D body on Actor destruction
+        std::unique_ptr<PhysicsBody> body_;  // RAII: destroys Box2D body automatically on Actor deletion
         bool alive_ = true;
         std::uint64_t id_ = 0;
     };

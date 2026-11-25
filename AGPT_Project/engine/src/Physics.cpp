@@ -52,7 +52,6 @@ namespace xe {
         b2Body_SetTransform(impl_->id, toB2(p), b2Body_GetRotation(impl_->id));
     }
 
-    glm::vec2 PhysicsBody::velocity() const { return fromB2(b2Body_GetLinearVelocity(impl_->id)); }
 
     void PhysicsBody::setVelocity(glm::vec2 v) {
         b2Body_SetLinearVelocity(impl_->id, toB2(v));

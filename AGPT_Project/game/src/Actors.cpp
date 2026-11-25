@@ -1,7 +1,5 @@
 #include "Actors.h"
 
-#include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <xe/Engine.h>
 #include <xe/InputManager.h>
@@ -24,7 +22,7 @@ namespace {
         return anim;
     }
 
-    // Helper to attach a box collider/sensor to an actor's physics body
+    // Attaches an axis-aligned box collider or sensor to an actor's physics body
     void addBoxShape(xe::Actor& actor, glm::vec2 halfExtents, bool sensor,
         std::uint16_t category, std::uint16_t mask) {
         xe::ShapeDesc s;
@@ -43,7 +41,7 @@ namespace {
 
 }  // namespace
 
-// ---- Explosion -------------------------------------------------------------------------
+// Explosion
 Explosion::Explosion(xe::Level& level, glm::vec2 pos, float size) : xe::Actor(level) {
     position = pos;
     scale = glm::vec2(size);
@@ -51,13 +49,12 @@ Explosion::Explosion(xe::Level& level, glm::vec2 pos, float size) : xe::Actor(le
     sheet = game(*this).assets().explosion;
     rotation = game(*this).randomFloat(0.f, 6.2831853f);
 
-    // One-shot animation (loop = false); destroyed once finished() becomes true
     animator.add("boom", makeClip(sheet->frameCount(), 0.035f, false));
     animator.play("boom");
 }
 
 void Explosion::update(float dt) {
-    rotation += 1.5f * dt;  // Subtle spin during the explosion
+    rotation += 1.5f * dt;
     if (animator.finished()) destroy();
 }
 
@@ -96,9 +93,7 @@ Loner::Loner(xe::Level& level, float y, bool fromLeft)
 }
 
 void Loner::update(float dt) {
-    // Despawn once the Loner exits the opposite side of the screen
-    const float margin = sheet->frameSize().x * 0.5f + 20.f;
-    if (position.x < -margin || position.x > viewport(*this).x + margin) {
+    if (isOffScreen(position, viewport(*this), sheet->frameSize().x * 0.5f + 20.f)) {
         destroy();
         return;
     }
@@ -132,7 +127,7 @@ Rusher::Rusher(xe::Level& level, float x) : Enemy(level) {
 }
 
 void Rusher::update(float) {
-    if (position.y > viewport(*this).y + sheet->frameSize().y) destroy();
+    if (isOffScreen(position, viewport(*this), sheet->frameSize().y)) destroy();
 }
 
 // ---- Projectiles -----------------------------------------------------------------------
@@ -156,7 +151,7 @@ EnemyShot::EnemyShot(xe::Level& level, glm::vec2 pos, glm::vec2 velocity) : xe::
 }
 
 void EnemyShot::update(float dt) {
-    rotation += 8.f * dt;  // Continuous rotation (satisfies CG rotation requirement)
+    rotation += 8.f * dt;  // Continuous rotation
     if (isOffScreen(position, viewport(*this), 40.f)) destroy();
 }
 
@@ -173,7 +168,7 @@ Missile::Missile(xe::Level& level, glm::vec2 pos) : xe::Actor(level) {
     layer = zorder::Shot;
     sheet = game(*this).assets().missile;
 
-    // Play only the first row of missile.bmp (light missiles)
+    // First row of missile.bmp = light missiles
     animator.add("fly", makeClip(kMissileRow0Frames, 0.06f));
     animator.play("fly");
 
@@ -183,7 +178,7 @@ Missile::Missile(xe::Level& level, glm::vec2 pos) : xe::Actor(level) {
 }
 
 void Missile::update(float) {
-    if (position.y < -60.f) destroy();
+    if (isOffScreen(position, viewport(*this), 60.f)) destroy();
 }
 
 void Missile::onOverlap(xe::Actor& other) {
@@ -201,56 +196,44 @@ Ship::Ship(xe::Level& level, glm::vec2 pos) : xe::Actor(level) {
     sheet = game(*this).assets().ship;
 
     // Ship1.bmp (7 tiles): 0..2 = turn left, 3 = neutral center, 4..6 = turn right
-    animator.add("idle", { {kShipIdleFrame}, 0.1f, false });    
-	animator.add("left", { {2, 1, 0}, 0.06f, false });
+    animator.add("idle", { {kShipIdleFrame}, 0.1f, false });
+    animator.add("left", { {2, 1, 0}, 0.06f, false });
     animator.add("right", { {4, 5, 6}, 0.06f, false });
     animator.play("idle");
 
     createBody(xe::BodyType::Kinematic);
-    // 1. Solid hitbox: allows EnemyShot sensors to trigger Box2D v3 sensor events
+    // Solid hitbox: allows EnemyShot sensors to trigger Box2D v3 sensor events
     addBoxShape(*this, sheet->frameSize() * 0.25f, false, cat::Ship, cat::All);
-    // 2. Sensor hitbox: detects ramming collisions against solid Enemy bodies
+    // Sensor hitbox: detects ramming collisions against solid Enemy bodies
     addBoxShape(*this, sheet->frameSize() * 0.30f, true, cat::ShipSensor, cat::Enemy);
 }
 
 void Ship::update(float dt) {
     auto& input = level().engine().input();
 
-    // Read normalized movement axes (keyboard + gamepad) and prevent faster diagonal movement
+    // Normalized movement vector from keyboard or gamepad stick
     glm::vec2 dir{ input.axis("move_x"), input.axis("move_y") };
     if (glm::length(dir) > 1.f) dir = glm::normalize(dir);
     body().setVelocity(dir * 320.f);
 
-    // Switch banking animation based on horizontal movement direction
     if (dir.x < -0.2f) animator.play("left");
     else if (dir.x > 0.2f) animator.play("right");
     else animator.play("idle");
 
-    // Fire missiles from the nose of the ship while "fire" is held
     fireCooldown_ -= dt;
     if (input.isDown("fire") && fireCooldown_ <= 0.f) {
         fireCooldown_ = 0.18f;
         level().spawn<Missile>(position + glm::vec2(0.f, -sheet->frameSize().y * 0.5f));
     }
 
-    // Visual invulnerability blink after taking damage
-    if (invulnerable_ > 0.f) {
-        invulnerable_ -= dt;
-        tint.a = (static_cast<int>(invulnerable_ * 10.f) % 2) ? 0.35f : 1.f;
-    }
-    else {
-        tint.a = 1.f;
-    }
+    // Blink sprite alpha while invulnerable after taking damage
+    if (invulnerable_ > 0.f) invulnerable_ -= dt;
+    tint.a = (invulnerable_ > 0.f && (static_cast<int>(invulnerable_ * 10.f) % 2)) ? 0.35f : 1.f;
 }
 
 void Ship::afterPhysics() {
-    // Keep the ship clamped inside the visible viewport after Box2D integrates its velocity
     const glm::vec2 half = sheet->frameSize() * 0.5f;
-    const glm::vec2 vp = viewport(*this);
-    const glm::vec2 clamped{
-        std::clamp(position.x, half.x, vp.x - half.x),
-        std::clamp(position.y, half.y, vp.y - half.y)
-    };
+    const glm::vec2 clamped = glm::clamp(position, half, viewport(*this) - half);
     if (clamped != position) {
         position = clamped;
         body().setPosition(clamped);

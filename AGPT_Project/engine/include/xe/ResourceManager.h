@@ -35,7 +35,6 @@ namespace xe {
         std::shared_ptr<Shader> shader(const std::string& name);
 
         bool assetExists(const std::string& relativePath) const;
-        std::size_t textureLoadCount() const { return textureLoads_; }
 
     private:
         std::string fullPath(const std::string& relativePath) const;
@@ -45,7 +44,6 @@ namespace xe {
         std::string shaderRoot_;
         std::unordered_map<std::string, std::shared_ptr<Texture>> textures_;
         std::unordered_map<std::string, std::shared_ptr<Shader>> shaders_;
-        std::size_t textureLoads_ = 0;  // Tracks unique GPU texture uploads for verification/debugging
     };
 
 }  // namespace xe

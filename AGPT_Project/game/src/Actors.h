@@ -14,8 +14,8 @@ public:
 class Enemy : public xe::Actor {
 public:
     using xe::Actor::Actor;
-    virtual void takeHit(int damage);   // Damaged by player missile: awards score on death
-    void crash();                       // Collided directly with player ship: dies without score
+    void takeHit(int damage);   // Damaged by player missile: awards score on death
+    void crash();               // Collided directly with player ship: dies without score
 
 protected:
     int health_ = 1;
